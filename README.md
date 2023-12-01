@@ -21,3 +21,12 @@ pip install git+https://github.com/openai/CLIP.git
 ```bash
 python test_latex.py 
 ```
+
+## React
+
+### Install
+Install Node.js and npm, then
+```bash
+pip install webdriver-manager
+pip install selenium
+```
