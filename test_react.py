@@ -1,7 +1,9 @@
 import subprocess
 import time
 from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
+import os
 
 # React code as a string
 # react_files = {
@@ -71,6 +73,9 @@ ReactDOM.render(<HelloPage />, document.getElementById('root'));
 """,
 }
 
+# Set BROWSER environment variable to none
+os.environ["BROWSER"] = "none"
+
 # Step 1: Create a new React application
 app_name = "my_react_app"
 subprocess.call(["npx", "create-react-app", app_name])
@@ -92,8 +97,12 @@ proc = subprocess.Popen(
 )
 time.sleep(5)  # Wait for the server to start
 
+# Configure Chrome to run in headless mode
+chrome_options = Options()
+chrome_options.add_argument("--headless")
+
 # Step 4: Take a screenshot using Selenium
-driver = webdriver.Chrome(ChromeDriverManager().install())
+driver = webdriver.Chrome(ChromeDriverManager().install(), options=chrome_options)
 driver.get("http://localhost:3000")  # URL of your React app
 driver.save_screenshot("react_app_2.png")
 driver.quit()
