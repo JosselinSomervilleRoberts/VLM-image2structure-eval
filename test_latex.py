@@ -8,12 +8,7 @@ import numpy as np
 import cv2
 import clip
 import torch
-
-# Load CLIP
-print("Loading CLIP...")
-device = "cuda" if torch.cuda.is_available() else "cpu"
-model, preprocess = clip.load("ViT-B/32", device=device)
-print("CLIP loaded")
+from dataclasses import dataclass
 
 
 def latex_to_pdf(latex_code: str) -> io.BytesIO:
@@ -40,52 +35,75 @@ def latex_to_image(latex_code: str) -> Image:
         print(f"An error occurred: {e}")
 
 
-def compute_clip(image: np.ndarray) -> torch.Tensor:
+device, model, preprocess = None, None, None
+
+
+def compute_clip(image: Image) -> torch.Tensor:
+    global device, model, preprocess
+    if device is None:
+        print("Loading CLIP... ", end="")
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        model, preprocess = clip.load("ViT-B/32", device=device)
+        print("Done!")
     image = preprocess(image).unsqueeze(0).to(device)
     with torch.no_grad():
         image_features = model.encode_image(image)
     return image_features
 
 
-def main(latex_code1: str, latex_code2: str):
-    image1 = latex_to_image(latex_code1)
-    image2 = latex_to_image(latex_code2)
-    image_empty = Image.new("RGB", image1.size, (255, 255, 255))
-
-    image1_features = compute_clip(image1)
-    image2_features = compute_clip(image2)
-    image_empty_features = compute_clip(image_empty)
-
-    # Convert to numpy array
+def compute_ssim(image1: Image, image2: Image) -> float:
     image1 = np.array(image1)
     image1 = cv2.cvtColor(image1, cv2.COLOR_BGR2GRAY)
     image2 = np.array(image2)
     image2 = cv2.cvtColor(image2, cv2.COLOR_BGR2GRAY)
-    image_empty = np.ones(image1.shape, dtype=np.uint8) * 255
-    debug(image1)
-    debug(image2)
-    debug(image_empty)
-    ssim_index = ssim(image1, image2)
-    ssim_index_empty = ssim(image1, image_empty)
-    score = (ssim_index - ssim_index_empty) / (1 - ssim_index_empty)
-    print(f"SSIM index: {ssim_index}")
-    print(f"SSIM index empty: {ssim_index_empty}")
-    print(f"Score: {score}")
+    return ssim(image1, image2)
+
+
+@dataclass
+class LatexResults:
+    ssim: float
+    score_ssim: float
+    clip_distance: float
+    score_clip: float
+
+
+def evaluate_latex(source_code: str, generated_code: str) -> LatexResults:
+    """Evaluate the similarity between two latex codes
+
+    Args:
+        source_code (str): Source latex code
+        generated_code (str): Generated latex code
+
+    Returns:
+        LatexResults: Results of the evaluation
+    """
+    gt_image: Image = latex_to_image(source_code)
+    pred_image: Image = latex_to_image(generated_code)
+    image_empty = Image.new("RGB", gt_image.size, (255, 255, 255))
 
     # Compute CLIP
-    debug(image1_features)
-    debug(image2_features)
-    debug(image_empty_features)
-    score = torch.cosine_similarity(image1_features, image2_features).item()
-    score_empty = torch.cosine_similarity(image1_features, image_empty_features).item()
-    print(f"CLIP similarity: {score}")
-    print(f"CLIP similarity empty: {score_empty}")
-    score_clip = (score - score_empty) / (1 - score_empty)
-    print(f"CLIP Score: {score_clip}")
+    gt_image_features = compute_clip(gt_image)
+    pred_image_features = compute_clip(pred_image)
+    image_empty_features = compute_clip(image_empty)
+    clip_distance = torch.cosine_similarity(
+        gt_image_features, pred_image_features
+    ).item()
+    clip_empty_distance = torch.cosine_similarity(
+        gt_image_features, image_empty_features
+    ).item()
+    score_clip = (clip_distance - clip_empty_distance) / (1 - clip_empty_distance)
 
-    # Save image
-    cv2.imwrite("image1.png", image1)
-    cv2.imwrite("image4.png", image2)
+    # Compute SSIM
+    ssim_value = compute_ssim(gt_image, pred_image)
+    ssim_empty = compute_ssim(gt_image, image_empty)
+    score_ssim = (ssim_value - ssim_empty) / (1 - ssim_empty)
+
+    return LatexResults(
+        ssim=ssim_value,
+        score_ssim=score_ssim,
+        clip_distance=clip_distance,
+        score_clip=score_clip,
+    )
 
 
 if __name__ == "__main__":
@@ -226,4 +244,5 @@ if __name__ == "__main__":
 \end{document}
     """
 
-    main(latex_code1, latex_code4)
+    results = evaluate_latex(latex_code1, latex_code2)
+    debug(results)
