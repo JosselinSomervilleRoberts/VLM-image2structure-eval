@@ -1,0 +1,10 @@
+Generate the LaTex code to reproduce the following image:
+You are provided with the following assets:
+- image_0
+- image_1
+- image_2
+- image_3
+- image_4
+- image_5
+
+You can describe what you are doing but make sure to provide the latex code between $$ tags so that it is rendered correctly.
