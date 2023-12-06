@@ -15,6 +15,11 @@ pip install opencv-python
 # CLIP
 pip install ftfy regex tqdm 
 pip install git+https://github.com/openai/CLIP.git
+
+# Latex to sympy parser
+pip install antlr4-tools
+pip install antlr4-python3-runtime
+antlr4 PS.g4 -o gen
 ```
 
 ### Run
