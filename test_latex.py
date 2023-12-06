@@ -35,8 +35,8 @@ class LatexEvalRequest:
 @dataclass
 class LatexResults:
     image: Image
-    ssim: float
-    score_ssim: float
+    # ssim: float
+    # score_ssim: float
     clip_distance: float
     score_clip: float
     sim_text: float
@@ -156,10 +156,10 @@ def evaluate(request: LatexEvalRequest, assets_path: str) -> LatexResults:
     ).item()
     score_clip = (clip_distance - clip_empty_distance) / (1 - clip_empty_distance)
 
-    # Compute SSIM
-    ssim_value = compute_ssim(gt_image, pred_image)
-    ssim_empty = compute_ssim(gt_image, image_empty)
-    score_ssim = (ssim_value - ssim_empty) / (1 - ssim_empty)
+    # # Compute SSIM
+    # ssim_value = compute_ssim(gt_image, pred_image)
+    # ssim_empty = compute_ssim(gt_image, image_empty)
+    # score_ssim = (ssim_value - ssim_empty) / (1 - ssim_empty)
 
     # Compute content similarity
     gt_text, gt_equations, gt_figures = parse_latex(request.problem.source_code)
@@ -213,8 +213,8 @@ def evaluate(request: LatexEvalRequest, assets_path: str) -> LatexResults:
 
     return LatexResults(
         image=pred_image,
-        ssim=ssim_value,
-        score_ssim=score_ssim,
+        # ssim=ssim_value,
+        # score_ssim=score_ssim,
         clip_distance=clip_distance,
         score_clip=score_clip,
         sim_text=sim_text,
