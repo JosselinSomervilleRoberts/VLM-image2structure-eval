@@ -1,0 +1,44 @@
+\documentclass{article}
+\usepackage{graphicx}
+\usepackage{subcaption}
+
+\begin{document}
+
+\begin{figure}[ht]
+\centering
+
+\begin{subfigure}[b]{0.3\textwidth}
+\includegraphics[width=\textwidth]{image_0.png}
+\caption{Image 0}
+\end{subfigure}
+\hfill % spacing between the subfigures
+\begin{subfigure}[b]{0.3\textwidth}
+\includegraphics[width=\textwidth]{image_1.png}
+\caption{Image 1}
+\end{subfigure}
+\hfill % spacing between the subfigures
+\begin{subfigure}[b]{0.3\textwidth}
+\includegraphics[width=\textwidth]{image_2.png}
+\caption{Image 2}
+\end{subfigure}
+
+% New line for next row of images
+\begin{subfigure}[b]{0.3\textwidth}
+\includegraphics[width=\textwidth]{image_3.png}
+\caption{Image 3}
+\end{subfigure}
+\hfill
+\begin{subfigure}[b]{0.3\textwidth}
+\includegraphics[width=\textwidth]{image_4.png}
+\caption{Image 4}
+\end{subfigure}
+\hfill
+\begin{subfigure}[b]{0.3\textwidth}
+\includegraphics[width=\textwidth]{image_5.png}
+\caption{Image 5}
+\end{subfigure}
+
+\caption{Grid of Images}
+\end{figure}
+
+\end{document}

@@ -1,0 +1,29 @@
+\documentclass[12pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+
+\begin{document}
+
+\title{Newton's Binomial Theorem}
+\date{December 5, 2023}
+\maketitle
+
+\section{Introduction}
+Newton's Binomial Theorem is a fundamental theorem in algebra that describes the expansion of powers of a binomial. According to the theorem, it is possible to expand the power \( (a+b)^n \) into a sum involving terms of the form \( a^{n-k}b^k \), where the coefficient of each term is a specific positive integer known as a binomial coefficient.
+
+\section{The Binomial Theorem}
+For any positive integer \( n \), the expansion of \( (a+b)^n \) is given by:
+
+\begin{equation}
+(a+b)^n = \sum_{k=0}^{n} \binom{n}{k} a^{n-k}b^k
+\end{equation}
+
+where \( \binom{n}{k} \) represents the binomial coefficient, calculated as:
+
+\begin{equation}
+\binom{n}{k} = \frac{n!}{k!(n-k)!}
+\end{equation}
+
+\end{document}

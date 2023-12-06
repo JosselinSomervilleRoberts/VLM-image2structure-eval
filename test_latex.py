@@ -70,7 +70,7 @@ def pdf_to_image(
                     0,
                     0,
                     image.size[0],
-                    image.size[1] - int(image.size[1] * 0.15),
+                    image.size[1] - int(image.size[1] * 0.13),
                 )
             )
             image = image.crop(ImageOps.invert(image).getbbox())
@@ -206,7 +206,7 @@ def evaluate(request: LatexEvalRequest, assets_path: str) -> LatexResults:
                     [eq.split()], pred_equations[i].split(), weights=(0.5, 0.5, 0, 0)
                 )
                 # print(f"EQUATION {i}: {eq} was not parsed correctly")
-    sim_equations /= num_equations if num_equations > 0 else None
+    sim_equations = sim_equations / num_equations if num_equations > 0 else None
     # Figures should match exactly, create two sets and compute the intersection
     sim_figures = (
         len(set(gt_figures) & set(pred_figures))
@@ -280,6 +280,7 @@ if __name__ == "__main__":
         LatexProblem(
             source_code=r"""\documentclass{article}\usepackage[utf8]{inputenc}\usepackage{amsmath}\title{Newton's Binomial Theorem}\begin{document}\maketitle\section{Introduction}Newton's Binomial Theorem is a fundamental theorem in algebra that describes the expansion of powers of a binomial. According to the theorem, it is possible to expand the power \((a + b)^n\) into a sum involving terms of the form \(a^kb^{n-k}\), where the coefficient of each term is a specific positive integer known as a binomial coefficient.\section{The Binomial Theorem}For any positive integer \(n\), the expansion of \((a + b)^n\) is given by:\begin{equation}    (a + b)^n = \sum_{k=0}^{n} \binom{n}{k} a^{n-k}b^k\end{equation}where \(\binom{n}{k}\) represents the binomial coefficient, calculated as:\begin{equation}    \binom{n}{k} = \frac{n!}{k!(n-k)!}\end{equation}\end{document}""",
             assets=[],
+            crop_and_resize=True,
         ),
         LatexProblem(
             source_code=r"""\documentclass{article}\usepackage[utf8]{inputenc}\usepackage{amsmath}\begin{document}\begin{equation}    (a + b)^n = \sum_{k=0}^{n} \binom{n}{k} a^{n-k}b^k\end{equation}\end{document}""",
@@ -288,15 +289,18 @@ if __name__ == "__main__":
         ),
         LatexProblem(
             source_code=r"""\documentclass{article}\usepackage{graphicx}\usepackage{subcaption}\begin{document}\begin{figure}[h]    \centering    \begin{subfigure}{0.45\textwidth}        \includegraphics[width=\linewidth]{image_0.png}        \caption{Image 0}    \end{subfigure}    \hfill    \begin{subfigure}{0.45\textwidth}        \includegraphics[width=\linewidth]{image_1.png}        \caption{Image 1}    \end{subfigure}    \vspace{1cm}    \begin{subfigure}{0.45\textwidth}        \includegraphics[width=\linewidth]{image_2.png}        \caption{Image 2}    \end{subfigure}    \hfill    \begin{subfigure}{0.45\textwidth}        \includegraphics[width=\linewidth]{image_3.png}        \caption{Image 3}    \end{subfigure}    \vspace{1cm}    \begin{subfigure}{0.45\textwidth}        \includegraphics[width=\linewidth]{image_4.png}        \caption{Image 4}    \end{subfigure}    \hfill    \begin{subfigure}{0.45\textwidth}        \includegraphics[width=\linewidth]{image_5.png}        \caption{Image 5}    \end{subfigure}    \caption{Grid of Images}\end{figure}\end{document}""",
-            assets=[f"image_{i}" for i in range(6)],
+            assets=[f"image_{i}.png" for i in range(6)],
+            crop_and_resize=False,
         ),
         LatexProblem(
             source_code=r"""\documentclass{article}\usepackage{graphicx}\usepackage{lipsum}\usepackage{caption}\begin{document}\noindent\begin{minipage}[t]{0.49\textwidth}    \vspace{0pt}    \includegraphics[width=\linewidth]{image_0.png}    \par\vspace{\abovecaptionskip}    \includegraphics[width=\linewidth]{image_1.png}    \par\vspace{\abovecaptionskip}    \captionof{figure}{Caption for both images}\end{minipage}\hfill\begin{minipage}[t]{0.49\textwidth}    \vspace{0pt}    \lipsum[1]\end{minipage}\end{document}""",
-            assets=[f"image_{i}" for i in range(2)],
+            assets=[f"image_{i}.png" for i in range(2)],
+            crop_and_resize=True,
         ),
         LatexProblem(
             source_code=r"""\documentclass{article}\usepackage{amsmath}\begin{document}\section*{Convolution Layer in Computer Vision}\textbf{General Convolution Operation:}\begin{equation}    \text{Output}(i, j) = \sum_m \sum_n \text{Input}(i + m, j + n) \cdot \text{Kernel}(m, n)\end{equation}\textbf{Sobel Filter Example:}Sobel filter kernels for edge detection:\begin{equation}    G_x = \begin{bmatrix} -1 & 0 & +1 \\ -2 & 0 & +2 \\ -1 & 0 & +1 \end{bmatrix}, \quad G_y = \begin{bmatrix} -1 & -2 & -1 \\ 0 & 0 & 0 \\ +1 & +2 & +1 \end{bmatrix}\end{equation}Using Sobel filter in convolution:\begin{equation}    \text{Output}_{\text{Sobel}}(i, j) = \sum_m \sum_n \text{Input}(i + m, j + n) \cdot G_x \text{ or } G_y\end{equation}\end{document}""",
             assets=[],
+            crop_and_resize=True,
         ),
     ]
 
@@ -307,7 +311,9 @@ if __name__ == "__main__":
         os.makedirs(args.data_path, exist_ok=True)
 
         # Generate prompts
-        for i, problem in tqdm(enumerate(problems), desc="Generating prompts"):
+        for i, problem in tqdm(
+            enumerate(problems), desc="Generating prompts", total=len(problems)
+        ):
             prompt, image = generate_prompt(problem, f"{args.data_path}/image_{i}")
             # Save the prompt
             with open(f"{args.data_path}/prompt_{i}.txt", "w") as file:
@@ -316,7 +322,7 @@ if __name__ == "__main__":
     elif args.mode == "evaluate":
         assert os.path.exists(args.data_path), f"Path {args.data_path} does not exist"
 
-        for i, problem in tqdm(enumerate(problems), "Evaluating"):
+        for i, problem in tqdm(enumerate(problems), "Evaluating", total=len(problems)):
             # Read the generated code
             with open(f"{args.data_path}/generated_{i}.txt", "r") as file:
                 generated_code = file.read()

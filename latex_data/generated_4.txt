@@ -1,0 +1,34 @@
+\documentclass{article}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+
+\begin{document}
+
+\section*{Convolution Layer in Computer Vision}
+
+General Convolution Operation:
+\begin{equation}
+    Output(i, j) = \sum_m \sum_n Input(i + m, j + n) \cdot Kernel(m, n)
+\end{equation}
+
+Sobel Filter Example: Sobel filter kernels for edge detection:
+\begin{equation}
+    G_x = \begin{bmatrix}
+        -1 & 0 & +1 \\
+        -2 & 0 & +2 \\
+        -1 & 0 & +1
+    \end{bmatrix}, \quad
+    G_y = \begin{bmatrix}
+        -1 & -2 & -1 \\
+        0 & 0 & 0 \\
+        +1 & +2 & +1
+    \end{bmatrix}
+\end{equation}
+
+Using Sobel filter in convolution:
+\begin{equation}
+    Output_{\text{Sobel}}(i, j) = \sum_m \sum_n Input(i + m, j + n) \cdot G_x \text{ or } G_y
+\end{equation}
+
+\end{document}
