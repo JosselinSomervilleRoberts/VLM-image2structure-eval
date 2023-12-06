@@ -1,7 +1,9 @@
+from typing import Optional, List, Tuple
+
 from latex import build_pdf
 from pdf2image import convert_from_bytes
 import io
-from PIL import Image
+from PIL import Image, ImageOps
 from skimage.metrics import structural_similarity as ssim
 from toolbox.printing import debug
 import numpy as np
@@ -9,28 +11,79 @@ import cv2
 import clip
 import torch
 from dataclasses import dataclass
+import argparse
+import os
+from tqdm import tqdm
 
 
-def latex_to_pdf(latex_code: str) -> io.BytesIO:
+@dataclass
+class LatexProblem:
+    source_code: str
+    assets: List[str]
+    crop_and_resize: bool = False
+
+
+@dataclass
+class LatexEvalRequest:
+    problem: LatexProblem
+    generated_code: str
+
+
+@dataclass
+class LatexResults:
+    image: Image
+    ssim: float
+    score_ssim: float
+    clip_distance: float
+    score_clip: float
+
+
+def latex_to_pdf(latex_code: str, assets_path: str) -> io.BytesIO:
     # Compiling LaTeX code to PDF
-    pdf = build_pdf(latex_code)
+    path = os.path.join(os.path.abspath(os.path.dirname(__file__)), assets_path)
+    debug(path)
+    pdf = build_pdf(latex_code, texinputs=[path, ""])
     return io.BytesIO(pdf.data)  # Convert PDF to a byte stream
 
 
-def pdf_to_image(pdf_stream: io.BytesIO) -> Image:
+def pdf_to_image(
+    pdf_stream: io.BytesIO,
+    crop: bool = False,
+    resize_to: Optional[Tuple[int, int]] = None,
+) -> Image:
     # Convert the first page of the PDF stream to an image
     images = convert_from_bytes(pdf_stream.read(), first_page=1, last_page=1)
     if images:
-        return images[0]
+        image: Image = images[0]
+
+        # Removes the white border around the image
+        if crop:
+            debug(ImageOps.invert(image).getbbox())
+            import matplotlib.pyplot as plt
+
+            # Show inverted image
+            plt.imshow(ImageOps.invert(image))
+            image = image.crop(ImageOps.invert(image).getbbox())
+
+        # Resize the image
+        if resize_to:
+            image = image.resize(resize_to)
+
+        return image
     else:
         raise Exception("PDF to Image conversion failed")
 
 
-def latex_to_image(latex_code: str) -> Image:
+def latex_to_image(
+    latex_code: str,
+    assets_path: str,
+    crop: bool = False,
+    resize_to: Optional[Tuple[int, int]] = None,
+):  # -> Tuple[Image, Tuple[int, int]]:
     try:
-        pdf_stream = latex_to_pdf(latex_code)
-        image = pdf_to_image(pdf_stream)
-        return image
+        pdf_stream = latex_to_pdf(latex_code, assets_path=assets_path)
+        image = pdf_to_image(pdf_stream, crop=crop, resize_to=resize_to)
+        return image, image.size
     except Exception as e:
         print(f"An error occurred: {e}")
 
@@ -59,27 +112,31 @@ def compute_ssim(image1: Image, image2: Image) -> float:
     return ssim(image1, image2)
 
 
-@dataclass
-class LatexResults:
-    ssim: float
-    score_ssim: float
-    clip_distance: float
-    score_clip: float
-
-
-def evaluate_latex(source_code: str, generated_code: str) -> LatexResults:
+def evaluate(request: LatexEvalRequest, assets_path: str) -> LatexResults:
     """Evaluate the similarity between two latex codes
 
     Args:
-        source_code (str): Source latex code
-        generated_code (str): Generated latex code
+        request (LatexEvalRequest): Request containing the source code and the generated code
+        assets_path (str): Path to the assets
 
     Returns:
         LatexResults: Results of the evaluation
     """
-    gt_image: Image = latex_to_image(source_code)
-    pred_image: Image = latex_to_image(generated_code)
-    image_empty = Image.new("RGB", gt_image.size, (255, 255, 255))
+    # Convert LaTeX to images
+    gt_image, gt_size = latex_to_image(
+        request.problem.source_code,
+        crop=request.problem.crop_and_resize,
+        assets_path=assets_path,
+    )
+    pred_image, pred_size = latex_to_image(
+        request.generated_code,
+        crop=request.problem.crop_and_resize,
+        resize_to=gt_size if request.problem.crop_and_resize else None,
+        assets_path=assets_path,
+    )
+    if request.problem.crop_and_resize:
+        assert gt_size == pred_size, f"Expected size {gt_size} but got {pred_size}"
+    image_empty = Image.new("RGB", gt_size, (255, 255, 255))
 
     # Compute CLIP
     gt_image_features = compute_clip(gt_image)
@@ -99,6 +156,7 @@ def evaluate_latex(source_code: str, generated_code: str) -> LatexResults:
     score_ssim = (ssim_value - ssim_empty) / (1 - ssim_empty)
 
     return LatexResults(
+        image=pred_image,
         ssim=ssim_value,
         score_ssim=score_ssim,
         clip_distance=clip_distance,
@@ -106,143 +164,106 @@ def evaluate_latex(source_code: str, generated_code: str) -> LatexResults:
     )
 
 
+def generate_prompt(problem: LatexProblem, path: str):  # -> Tuple[str, Image]:
+    """Given a problem, generate a prompt for the VLM model.
+
+    Args:
+        problem (LatexProblem): Problem to generate a prompt for
+        path: Path where the image was generated
+
+    Returns:
+        prompt: Prompt for the VLM model
+        image: Image generated from the problem
+    """
+
+    # Step 1: Generate the prompt
+    prompt: str = "Generate the LaTex code to reproduce the following image:\n"
+    if len(problem.assets) > 0:
+        prompt += f"You are provided with the following assets:\n"
+        for asset in problem.assets:
+            prompt += f"- {asset}\n"
+        prompt += "\n"
+    prompt += "You can describe what you are doing but make sure to provide the latex code between $$ tags so that it is rendered correctly."
+
+    # Step 2: Generate the image
+    assets_path: str = os.path.join("/".join(path.split("/")[:-1]), "assets")
+    image, size = latex_to_image(
+        problem.source_code, crop=problem.crop_and_resize, assets_path=assets_path
+    )
+    image.save(f"{path}.png")
+
+    return prompt, image
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--mode",
+        type=str,
+        default="generate",
+        choices=["generate", "evaluate"],
+        help="Mode to run the script in",
+    )
+    parser.add_argument(
+        "--data_path",
+        type=str,
+        default="latex_data",
+    )
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    latex_code1 = r"""
-    \documentclass{article}
+    problems: List[LatexProblem] = [
+        LatexProblem(
+            source_code=r"""\documentclass{article}\usepackage[utf8]{inputenc}\usepackage{amsmath}\title{Newton's Binomial Theorem}\begin{document}\maketitle\section{Introduction}Newton's Binomial Theorem is a fundamental theorem in algebra that describes the expansion of powers of a binomial. According to the theorem, it is possible to expand the power \((a + b)^n\) into a sum involving terms of the form \(a^kb^{n-k}\), where the coefficient of each term is a specific positive integer known as a binomial coefficient.\section{The Binomial Theorem}For any positive integer \(n\), the expansion of \((a + b)^n\) is given by:\begin{equation}    (a + b)^n = \sum_{k=0}^{n} \binom{n}{k} a^{n-k}b^k\end{equation}where \(\binom{n}{k}\) represents the binomial coefficient, calculated as:\begin{equation}    \binom{n}{k} = \frac{n!}{k!(n-k)!}\end{equation}\end{document}""",
+            assets=[],
+        ),
+        LatexProblem(
+            source_code=r"""\documentclass{article}\usepackage[utf8]{inputenc}\usepackage{amsmath}\begin{document}\begin{equation}    (a + b)^n = \sum_{k=0}^{n} \binom{n}{k} a^{n-k}b^k\end{equation}\end{document}""",
+            assets=[],
+            crop_and_resize=True,
+        ),
+        LatexProblem(
+            source_code=r"""\documentclass{article}\usepackage{graphicx}\usepackage{subcaption}\begin{document}\begin{figure}[h]    \centering    \begin{subfigure}{0.45\textwidth}        \includegraphics[width=\linewidth]{image_0.png}        \caption{Image 0}    \end{subfigure}    \hfill    \begin{subfigure}{0.45\textwidth}        \includegraphics[width=\linewidth]{image_1.png}        \caption{Image 1}    \end{subfigure}    \vspace{1cm}    \begin{subfigure}{0.45\textwidth}        \includegraphics[width=\linewidth]{image_2.png}        \caption{Image 2}    \end{subfigure}    \hfill    \begin{subfigure}{0.45\textwidth}        \includegraphics[width=\linewidth]{image_3.png}        \caption{Image 3}    \end{subfigure}    \vspace{1cm}    \begin{subfigure}{0.45\textwidth}        \includegraphics[width=\linewidth]{image_4.png}        \caption{Image 4}    \end{subfigure}    \hfill    \begin{subfigure}{0.45\textwidth}        \includegraphics[width=\linewidth]{image_5.png}        \caption{Image 5}    \end{subfigure}    \caption{Grid of Images}\end{figure}\end{document}""",
+            assets=[f"image_{i}" for i in range(6)],
+        ),
+        LatexProblem(
+            source_code=r"""\documentclass{article}\usepackage{graphicx}\usepackage{lipsum}\usepackage{caption}\begin{document}\noindent\begin{minipage}[t]{0.49\textwidth}    \vspace{0pt}    \includegraphics[width=\linewidth]{image_0.png}    \par\vspace{\abovecaptionskip}    \includegraphics[width=\linewidth]{image_1.png}    \par\vspace{\abovecaptionskip}    \captionof{figure}{Caption for both images}\end{minipage}\hfill\begin{minipage}[t]{0.49\textwidth}    \vspace{0pt}    \lipsum[1]\end{minipage}\end{document}""",
+            assets=[f"image_{i}" for i in range(2)],
+        ),
+        LatexProblem(
+            source_code=r"""\documentclass{article}\usepackage{amsmath}\begin{document}\section*{Convolution Layer in Computer Vision}\textbf{General Convolution Operation:}\begin{equation}    \text{Output}(i, j) = \sum_m \sum_n \text{Input}(i + m, j + n) \cdot \text{Kernel}(m, n)\end{equation}\textbf{Sobel Filter Example:}Sobel filter kernels for edge detection:\begin{equation}    G_x = \begin{bmatrix} -1 & 0 & +1 \\ -2 & 0 & +2 \\ -1 & 0 & +1 \end{bmatrix}, \quad G_y = \begin{bmatrix} -1 & -2 & -1 \\ 0 & 0 & 0 \\ +1 & +2 & +1 \end{bmatrix}\end{equation}Using Sobel filter in convolution:\begin{equation}    \text{Output}_{\text{Sobel}}(i, j) = \sum_m \sum_n \text{Input}(i + m, j + n) \cdot G_x \text{ or } G_y\end{equation}\end{document}""",
+            assets=[],
+        ),
+    ]
 
-\usepackage{graphicx}  % For including images
-\usepackage{enumitem}  % For customizing itemized lists
-\usepackage{titlesec}  % For customizing section titles
-\usepackage{lipsum}    % For generating placeholder text (remove in final document)
-\usepackage{amsmath}
-% Custom section formatting
-\titleformat{\section}
-{\normalfont\large\bfseries}
-{}
-{0em}
-{}[\titlerule]
+    args = parse_args()
 
-\renewcommand{\thesection}{Problem \arabic{section}}
+    if args.mode == "generate":
+        # Make data path if it doesn't exist
+        os.makedirs(args.data_path, exist_ok=True)
 
-\newcommand{\problemset}[1]{\section{#1}}
+        # Generate prompts
+        for i, problem in tqdm(enumerate(problems), desc="Generating prompts"):
+            prompt, image = generate_prompt(problem, f"{args.data_path}/image_{i}")
+            # Save the prompt
+            with open(f"{args.data_path}/prompt_{i}.txt", "w") as file:
+                file.write(prompt)
 
-% Custom itemized list formatting
-\setlist[enumerate,1]{label=(\roman*)}
+    elif args.mode == "evaluate":
+        assert os.path.exists(args.data_path), f"Path {args.data_path} does not exist"
 
-\begin{document}
-\title{CS149 - Programming Assignment \#4}
-\author{Josselin Somerville Roberts, Yoni Gozlan}
-\date{\today}
-\maketitle
+        for i, problem in tqdm(enumerate(problems), "Evaluating"):
+            # Read the generated code
+            with open(f"{args.data_path}/generated_{i}.txt", "r") as file:
+                generated_code = file.read()
 
-\problemset{Warm-Up: Accessing Tensors (3 Points)}
-
-\begin{enumerate}
-  \item A 4D tensor is laid out in memory first batched by the batch dimension, then the z, then the y and finally the x. This is efficient as often any operation performed on the tensor will be performed for the entire batch. Therefore if you want to access a specific x,y,z you will want to do that for the entire batch, and these B elements are going to be contiguous in memory.
-
-\end{enumerate}
-
-\problemset{Part 1: A Simple (But Not So Efficient) Implementation of Attention (10 Points)}
-
-\end{document}
-    """
-
-    latex_code2 = r"""
-    \documentclass[12pt]{article}
-
-\title{CS149 - Programming Assignment \#4}
-\author{Josselin Somerville Roberts, Yoni Gozlan}
-\date{November 30, 2023}
-
-\begin{document}
-
-\maketitle
-
-\section*{Warm-Up: Accessing Tensors (3 Points)}
-\begin{enumerate}
-    \item[(i)] A 4D tensor is laid out in memory first batched by the batch dimension, then the \( z \), then the \( y \) and finally the \( x \). This is efficient as often any operation performed on the tensor will be performed for the entire batch. Therefore if you want to access a specific \( x,y,z \) you will want to do that for the entire batch, and these \( B \) elements are going to be contiguous in memory.
-\end{enumerate}
-
-\section*{Part 1: A Simple (But Not So Efficient) Implementation of Attention (10 Points)}
-
-\end{document}
-    """
-
-    latex_code3 = r"""
-    \documentclass[12pt]{article}
-
-% To create a horizontal line after the title
-\newcommand{\sectionline}{%
-  \nointerlineskip \vspace{\baselineskip}%
-  \hspace{\fill}\rule{\linewidth}{.7pt}\hspace{\fill}%
-  \par\nointerlineskip \vspace{\baselineskip}
-}
-
-\title{CS149 - Programming Assignment \#4}
-\author{Josselin Somerville Roberts, Yoni Gozlan}
-\date{November 30, 2023}
-
-\begin{document}
-
-\maketitle
-
-\section*{Warm-Up: Accessing Tensors (3 Points)}
-\sectionline
-\begin{enumerate}
-    \item[(i)] A 4D tensor is laid out in memory first batched by the batch dimension,
-    then the \( z \), then the \( y \) and finally the \( x \). This is efficient as often any
-    operation performed on the tensor will be performed for the entire batch.
-    Therefore if you want to access a specific \( x,y,z \) you will want to do that
-    for the entire batch, and these \( B \) elements are going to be contiguous in
-    memory.
-\end{enumerate}
-
-\section*{Part 1: A Simple (But Not So Efficient) Implementation of Attention (10 Points)}
-\sectionline
-
-\end{document}
-
-    """
-
-    latex_code4 = r"""
-    \documentclass{article}
-
-\usepackage{graphicx}  % For including images
-\usepackage{enumitem}  % For customizing itemized lists
-\usepackage{titlesec}  % For customizing section titles
-\usepackage{lipsum}    % For generating placeholder text (remove in final document)
-\usepackage{amsmath}
-% Custom section formatting
-\titleformat{\section}
-{\normalfont\small\bfseries}
-{}
-{0em}
-{}[\titlerule]
-
-\renewcommand{\thesection}{Problem \arabic{section}}
-
-\newcommand{\problemset}[1]{\section{#1}}
-
-% Custom itemized list formatting
-\setlist[enumerate,1]{label=(\roman*)}
-
-\begin{document}
-\title{CS149 - Programming Assignment \#4}
-\author{Josselin Somerville Roberts, Yoni Gozlan}
-\date{\today}
-\maketitle
-
-\problemset{Warm-Up: Accessing Tensors (3 Points)}
-
-\begin{enumerate}
-  \item A 4D tensor is laid out in memory first batched by the batch dimension, then the z, then the y and finally the x. This is efficient as often any operation performed on the tensor will be performed for the entire batch. Therefore if you want to access a specific x,y,z you will want to do that for the entire batch, and these B elements are going to be contiguous in memory.
-
-\end{enumerate}
-
-\problemset{Part 1: A Simple (But Not So Efficient) Implementation of Attention (10 Points)}
-
-\end{document}
-    """
-
-    results = evaluate_latex(latex_code1, latex_code2)
-    debug(results)
+            # Evaluate the generated code
+            results = evaluate(
+                LatexEvalRequest(problem=problem, generated_code=generated_code),
+                assets_path=os.path.join(args.data_path, "assets"),
+            )
+            # Save image
+            results.image.save(f"{args.data_path}/generated_{i}.png")
+            print(f"\nResults for problem {i}:")
+            debug(results)
