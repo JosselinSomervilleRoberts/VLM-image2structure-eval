@@ -47,7 +47,6 @@ class LatexResults:
 def latex_to_pdf(latex_code: str, assets_path: str) -> io.BytesIO:
     # Compiling LaTeX code to PDF
     path = os.path.join(os.path.abspath(os.path.dirname(__file__)), assets_path)
-    debug(path)
     pdf = build_pdf(latex_code, texinputs=[path, ""])
     return io.BytesIO(pdf.data)  # Convert PDF to a byte stream
 
@@ -64,11 +63,16 @@ def pdf_to_image(
 
         # Removes the white border around the image
         if crop:
-            debug(ImageOps.invert(image).getbbox())
-            import matplotlib.pyplot as plt
-
-            # Show inverted image
-            plt.imshow(ImageOps.invert(image))
+            # TODO: Clean this
+            # We need to remove the bottom of the image first to remove the number of the page
+            image = image.crop(
+                (
+                    0,
+                    0,
+                    image.size[0],
+                    image.size[1] - int(image.size[1] * 0.15),
+                )
+            )
             image = image.crop(ImageOps.invert(image).getbbox())
 
         # Resize the image
@@ -166,10 +170,10 @@ def evaluate(request: LatexEvalRequest, assets_path: str) -> LatexResults:
     pred_text, pred_equations, pred_figures = parse_latex(request.generated_code)
     gt_text = " ".join(gt_text)
     pred_text = " ".join(pred_text)
-    print("GT:", gt_text)
-    print("PRED:", pred_text)
-    sim_text = sentence_bleu(
-        [gt_text.split()], pred_text.split(), weights=(0.5, 0.5, 0, 0)
+    sim_text = (
+        sentence_bleu([gt_text.split()], pred_text.split(), weights=(0.5, 0.5, 0, 0))
+        if len(gt_text) > 0
+        else None
     )
     sim_equations = 0
     num_equations = max(len(gt_equations), len(pred_equations))
@@ -180,9 +184,9 @@ def evaluate(request: LatexEvalRequest, assets_path: str) -> LatexResults:
                 try:
                     pred_sympy = process_sympy(pred_equations[i])
                     sim_equations += gt_sympy.equals(pred_sympy)
-                    print(
-                        f"EQUATION {i}: {gt_sympy} == {pred_sympy} was parsed correctly"
-                    )
+                    # print(
+                    #     f"EQUATION {i}: {gt_sympy} == {pred_sympy} was parsed correctly"
+                    # )
                 except:
                     # Ground truth equation is a valid sympy equation but the generated equation is not
                     # Compute BLEU score instead
@@ -192,16 +196,16 @@ def evaluate(request: LatexEvalRequest, assets_path: str) -> LatexResults:
                         pred_equations[i].split(),
                         weights=(0.5, 0.5, 0, 0),
                     )
-                    print(
-                        f"EQUATION {i}: {gt_sympy} was parsed correctly but {pred_equations[i]} was not"
-                    )
+                    # print(
+                    #     f"EQUATION {i}: {gt_sympy} was parsed correctly but {pred_equations[i]} was not"
+                    # )
             except:
                 # Ground truth equation is not a valid sympy equation
                 # Compute BLEU score instead
                 sim_equations += sentence_bleu(
                     [eq.split()], pred_equations[i].split(), weights=(0.5, 0.5, 0, 0)
                 )
-                print(f"EQUATION {i}: {eq} was not parsed correctly")
+                # print(f"EQUATION {i}: {eq} was not parsed correctly")
     sim_equations /= num_equations if num_equations > 0 else None
     # Figures should match exactly, create two sets and compute the intersection
     sim_figures = (
