@@ -42,6 +42,16 @@ def find_latex_equations(latex_code):
     return original_equations, filtered_equations
 
 
+def extract_figures(latex_code):
+    # Pattern for \includegraphics and \caption
+    img_pattern = r"\\includegraphics\[.*?\]\{(.+?)\}"
+
+    # Extract image paths and captions
+    matches = re.findall(img_pattern, latex_code)
+
+    return matches
+
+
 def parse_latex(latex_code):
     # Patterns for specific commands to extract text from
     command_patterns = [
@@ -62,6 +72,9 @@ def parse_latex(latex_code):
     original_equations, filtered_equations = find_latex_equations(latex_code)
     for eq in original_equations:
         latex_code = latex_code.replace(eq, "")
+    figures = extract_figures(latex_code)
+    for fig in figures:
+        latex_code = latex_code.replace(fig, "")
 
     # Regular expression patterns to identify and exclude LaTeX commands and environments
     command_pattern = r"\\[a-zA-Z]+\*?\{.*?\}"
@@ -76,38 +89,39 @@ def parse_latex(latex_code):
     text_segments = filter(None, re.split(r"\s+|\n", latex_code))
     extracted_text.extend(text_segments)
 
-    return list(extracted_text), filtered_equations, None
+    return list(extracted_text), filtered_equations, figures
 
 
-# Example LaTeX code
-latex_code = """
-\\documentclass{article}
-\\usepackage{amsmath}
-\\begin{document}
+if __name__ == "__main__":
+    # Example LaTeX code
+    latex_code = """
+    \\documentclass{article}
+    \\usepackage{amsmath}
+    \\begin{document}
 
-\\section*{Convolution Layer in Computer Vision}
+    \\section*{Convolution Layer in Computer Vision}
 
-\\textbf{General Convolution Operation:}
-\\begin{equation}
-    \\text{Output}(i, j) = \\sum_m \\sum_n \\text{Input}(i + m, j + n) \\cdot \\text{Kernel}(m, n)
-\\end{equation}
+    \\textbf{General Convolution Operation:}
+    \\begin{equation}
+        \\text{Output}(i, j) = \\sum_m \\sum_n \\text{Input}(i + m, j + n) \\cdot \\text{Kernel}(m, n)
+    \\end{equation}
 
-\\textbf{Sobel Filter Example:}
+    \\textbf{Sobel Filter Example:}
 
-Sobel filter kernels for edge detection:
-\\begin{equation}
-    G_x = \\begin{bmatrix} -1 & 0 & +1 \\\\ -2 & 0 & +2 \\\\ -1 & 0 & +1 \\end{bmatrix}, \\quad G_y = \\begin{bmatrix} -1 & -2 & -1 \\\\ 0 & 0 & 0 \\\\ +1 & +2 & +1 \\end{bmatrix}
-\\end{equation}
+    Sobel filter kernels for edge detection:
+    \\begin{equation}
+        G_x = \\begin{bmatrix} -1 & 0 & +1 \\\\ -2 & 0 & +2 \\\\ -1 & 0 & +1 \\end{bmatrix}, \\quad G_y = \\begin{bmatrix} -1 & -2 & -1 \\\\ 0 & 0 & 0 \\\\ +1 & +2 & +1 \\end{bmatrix}
+    \\end{equation}
 
-Using Sobel filter in convolution:
-\\begin{equation}
-    \\text{Output}_{\\text{Sobel}}(i, j) = \\sum_m \\sum_n \\text{Input}(i + m, j + n) \\cdot G_x \\text{ or } G_y
-\\end{equation}
+    Using Sobel filter in convolution:
+    \\begin{equation}
+        \\text{Output}_{\\text{Sobel}}(i, j) = \\sum_m \\sum_n \\text{Input}(i + m, j + n) \\cdot G_x \\text{ or } G_y
+    \\end{equation}
 
-\\end{document}
-"""
+    \\end{document}
+    """
 
-text, equations, images = parse_latex(latex_code)
-print("Text:", text)
-print("Equations:", equations)
-print("Images:", images)
+    text, equations, images = parse_latex(latex_code)
+    print("Text:", text)
+    print("Equations:", equations)
+    print("Images:", images)

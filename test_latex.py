@@ -5,7 +5,7 @@ from pdf2image import convert_from_bytes
 import io
 from PIL import Image, ImageOps
 from skimage.metrics import structural_similarity as ssim
-from toolbox.printing import debug
+from toolbox.printing import debug, ldebug
 import numpy as np
 import cv2
 import clip
@@ -14,6 +14,9 @@ from dataclasses import dataclass
 import argparse
 import os
 from tqdm import tqdm
+from parser_latex import parse_latex
+from process_latex import process_sympy
+from nltk.translate.bleu_score import sentence_bleu
 
 
 @dataclass
@@ -36,6 +39,9 @@ class LatexResults:
     score_ssim: float
     clip_distance: float
     score_clip: float
+    sim_text: float
+    sim_equations: float
+    sim_figures: float
 
 
 def latex_to_pdf(latex_code: str, assets_path: str) -> io.BytesIO:
@@ -155,12 +161,65 @@ def evaluate(request: LatexEvalRequest, assets_path: str) -> LatexResults:
     ssim_empty = compute_ssim(gt_image, image_empty)
     score_ssim = (ssim_value - ssim_empty) / (1 - ssim_empty)
 
+    # Compute content similarity
+    gt_text, gt_equations, gt_figures = parse_latex(request.problem.source_code)
+    pred_text, pred_equations, pred_figures = parse_latex(request.generated_code)
+    gt_text = " ".join(gt_text)
+    pred_text = " ".join(pred_text)
+    print("GT:", gt_text)
+    print("PRED:", pred_text)
+    sim_text = sentence_bleu(
+        [gt_text.split()], pred_text.split(), weights=(0.5, 0.5, 0, 0)
+    )
+    sim_equations = 0
+    num_equations = max(len(gt_equations), len(pred_equations))
+    for i, eq in enumerate(gt_equations):
+        if i < len(pred_equations):
+            try:
+                gt_sympy = process_sympy(eq)
+                try:
+                    pred_sympy = process_sympy(pred_equations[i])
+                    sim_equations += gt_sympy.equals(pred_sympy)
+                    print(
+                        f"EQUATION {i}: {gt_sympy} == {pred_sympy} was parsed correctly"
+                    )
+                except:
+                    # Ground truth equation is a valid sympy equation but the generated equation is not
+                    # Compute BLEU score instead
+                    # TODO: Think if this should be penalized
+                    sim_equations += sentence_bleu(
+                        [eq.split()],
+                        pred_equations[i].split(),
+                        weights=(0.5, 0.5, 0, 0),
+                    )
+                    print(
+                        f"EQUATION {i}: {gt_sympy} was parsed correctly but {pred_equations[i]} was not"
+                    )
+            except:
+                # Ground truth equation is not a valid sympy equation
+                # Compute BLEU score instead
+                sim_equations += sentence_bleu(
+                    [eq.split()], pred_equations[i].split(), weights=(0.5, 0.5, 0, 0)
+                )
+                print(f"EQUATION {i}: {eq} was not parsed correctly")
+    sim_equations /= num_equations if num_equations > 0 else None
+    # Figures should match exactly, create two sets and compute the intersection
+    sim_figures = (
+        len(set(gt_figures) & set(pred_figures))
+        / max(len(set(gt_figures)), len(set(pred_figures)))
+        if max(len(set(gt_figures)), len(set(pred_figures))) > 0
+        else None
+    )
+
     return LatexResults(
         image=pred_image,
         ssim=ssim_value,
         score_ssim=score_ssim,
         clip_distance=clip_distance,
         score_clip=score_clip,
+        sim_text=sim_text,
+        sim_equations=sim_equations,
+        sim_figures=sim_figures,
     )
 
 
@@ -266,4 +325,4 @@ if __name__ == "__main__":
             # Save image
             results.image.save(f"{args.data_path}/generated_{i}.png")
             print(f"\nResults for problem {i}:")
-            debug(results)
+            ldebug(results)
